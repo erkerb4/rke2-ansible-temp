@@ -1,0 +1,78 @@
+---
+- name: Retrieve latest helm release
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/helm/helm/releases
+    body_format: json
+    return_content: true
+  register: helm_release
+
+- name: Download Helm
+  ansible.builtin.unarchive:
+    src: https://get.helm.sh/helm-{{ helm_release.json[0].tag_name }}-linux-{{ cpu_arch.stdout }}.tar.gz
+    dest: /usr/bin/
+    remote_src: yes
+    extra_opts:
+    - --strip-components=1
+    mode: 755
+- name: Add cilium repository
+  kubernetes.core.helm_repository:
+    name: cilium
+    repo_url: "https://helm.cilium.io/"
+
+- name: Deploy Cilium
+  kubernetes.core.helm:
+    name: cilium
+    chart_ref: cilium/cilium
+    chart_version: "1.15.3"
+    release_namespace: kube-system
+    wait: true
+    kubeconfig: /etc/rancher/rke2/rke2.yaml
+    values:
+      rollOutCiliumPods: true
+      extraEnv:
+        - name: TZ
+          value: "America/New_York"
+      endpointRoutes:
+        enabled: true
+      hubble:
+        relay:
+          enabled: true
+        ui:
+          enabled: true
+          ingress:
+            enabled: true
+            annotations:
+              cert-manager.io/cluster-issuer: le-prod
+              traefik.ingress.kubernetes.io/router.entrypoints: websecure
+              traefik.ingress.kubernetes.io/router.pathmatcher: PathPrefix
+            hosts:
+              - hobble.xtr.pub
+            tls:
+            - hosts:
+              - hobble.xtr.pub
+      ipam:
+        mode: cluster-pool
+        operator:
+          clusterPoolIPv4MaskSize: 24
+          clusterPoolIPv4PodCIDRList: ["172.30.0.0/20"]
+      k8sServiceHost: 192.168.30.10
+      k8sServicePort: 6443
+      kubeProxyReplacement: strict
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          cpu: 1500m
+          memory: 1250Mi
+      externalIPs:
+        enabled: false
+      nodePort:
+        enabled: true
+      hostPort:
+        enabled: true
+      l2announcements:
+        enabled: true
+        leaseDuration: 5s
+        leaseRenewDeadline: 1s
+        leaseRetryPeriod: 250ms
